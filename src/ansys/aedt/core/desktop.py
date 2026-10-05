@@ -3122,6 +3122,7 @@ class Desktop(PyAedtBase):
         On top of checking the port, this method also determines if a new AEDT session
         needs to be launched.
         """
+        return
         self.logger.debug(f"Validating specified gRPC port: {self.port}")
 
         if self.port == 0:  # Checking if available session is there or eventually assign new port
