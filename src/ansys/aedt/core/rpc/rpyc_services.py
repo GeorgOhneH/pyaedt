@@ -64,6 +64,11 @@ class _AEDTGrpcInfo:
     """Value for version."""
 
 
+def _remote_path(path) -> str:
+    # rpyc passes objects such as pathlib.Path by reference, which the os functions on the server cannot use
+    return os.fspath(path)
+
+
 class FileManagement(PyAedtBase):
     """Class to manage file transfer.
 
@@ -96,6 +101,7 @@ class FileManagement(PyAedtBase):
         >>> obj.upload("localpath", "remotepath", overwrite=True)
 
         """
+        localpath, remotepath = os.fspath(localpath), _remote_path(remotepath)
         if os.path.isdir(localpath):
             self._upload_dir(localpath, remotepath)
         elif os.path.isfile(localpath):
@@ -120,7 +126,7 @@ class FileManagement(PyAedtBase):
         >>> obj.download_folder("remotepath", "localpath", overwrite=True)
 
         """
-        self._download_dir(remotepath, localpath, overwrite=True)
+        self._download_dir(_remote_path(remotepath), os.fspath(localpath), overwrite=True)
 
     def download_file(self, remotepath: str, localpath: str, overwrite: bool = True) -> None:
         """Download a file from a given remote path to the local path.
@@ -141,7 +147,7 @@ class FileManagement(PyAedtBase):
         >>> obj.download_file("remotepath", "localpath", overwrite=True)
 
         """
-        self._download_file(remotepath, localpath, overwrite=overwrite)
+        self._download_file(_remote_path(remotepath), os.fspath(localpath), overwrite=overwrite)
 
     def _upload_file(self, local_file, remote_file, overwrite: bool = False) -> bool:
         if self.client.root.pathexists(remote_file):
@@ -151,9 +157,11 @@ class FileManagement(PyAedtBase):
                 logger.error("File already exists on the server. Skipping it")
                 return False
         new_file = self.client.root.create(remote_file)
-        local = open(local_file, "rb")
-        shutil.copyfileobj(local, new_file)
-        new_file.close()
+        try:
+            with open(local_file, "rb") as local:
+                shutil.copyfileobj(local, new_file)
+        finally:
+            new_file.close()
         logger.info("File %s uploaded to %s", local_file, remote_file)
 
     def _upload_dir(self, localpath, remotepath, overwrite: bool = False):
@@ -164,7 +172,7 @@ class FileManagement(PyAedtBase):
         for fn in os.listdir(localpath):
             lfn = os.path.join(localpath, fn)
             rfn = remotepath + "/" + fn
-            if os.path.isdir(rfn):
+            if os.path.isdir(lfn):
                 self._upload_dir(lfn, rfn, overwrite=overwrite)
             else:
                 self._upload_file(lfn, rfn, overwrite=overwrite)
@@ -172,15 +180,18 @@ class FileManagement(PyAedtBase):
         logger.info("Directory %s uploaded. %s files copied", localpath, i)
 
     def _download_file(self, remote_file, local_file, overwrite: bool = True):
-        if self.client.root.pathexists(local_file):
+        if os.path.exists(local_file):
             if overwrite:
                 logger.warning("File already exists on the client. Overwriting it.")
             else:
                 logger.warning("File already exists on the client, skipping it.")
                 return
         remote = self.client.root.open(remote_file)
-        new_file = open(local_file, "wb")
-        shutil.copyfileobj(remote, new_file)
+        try:
+            with open(local_file, "wb") as new_file:
+                shutil.copyfileobj(remote, new_file)
+        finally:
+            remote.close()
         logger.info("File %s downloaded to %s", remote_file, local_file)
 
     def _download_dir(self, remotepath, localpath, overwrite: bool = True):
@@ -200,40 +211,49 @@ class FileManagement(PyAedtBase):
         logger.info("Directory %s downloaded. %s files copied", localpath, i)
 
     def open_file(self, remote_file: str, open_options: str = "r", encoding: str = None):
-        return self.client.root.open(remote_file, open_options=open_options, encoding=encoding)
+        return self.client.root.open(_remote_path(remote_file), open_options=open_options, encoding=encoding)
 
     def create_file(self, remote_file: str, create_options: str = "w", encoding: str = None, override: bool = True):
-        return self.client.root.create(remote_file, open_options=create_options, encoding=encoding, override=override)
+        return self.client.root.create(
+            _remote_path(remote_file), open_options=create_options, encoding=encoding, override=override
+        )
 
     def makedirs(self, remotepath: str) -> str:
+        remotepath = _remote_path(remotepath)
         if self.client.root.pathexists(remotepath):
             return "Directory Exists!"
         self.client.root.makedirs(remotepath)
         return "Directory created."
 
     def walk(self, remotepath: str):
+        remotepath = _remote_path(remotepath)
         if self.client.root.pathexists(remotepath):
             return self.client.root.walk(remotepath)
 
     def listdir(self, remotepath: str):
+        remotepath = _remote_path(remotepath)
         if self.client.root.pathexists(remotepath):
             return self.client.root.listdir(remotepath)
         return []
 
     def pathexists(self, remotepath: str) -> bool:
+        remotepath = _remote_path(remotepath)
         if self.client.root.pathexists(remotepath):
             return True
         return False
 
     def unlink(self, remotepath: str) -> bool:
+        remotepath = _remote_path(remotepath)
         if self.client.root.unlink(remotepath):
             return True
         return False
 
     def normpath(self, remotepath: str) -> str:
+        remotepath = _remote_path(remotepath)
         return self.client.root.normpath(remotepath)
 
     def isdir(self, remotepath: str) -> bool:
+        remotepath = _remote_path(remotepath)
         return self.client.root.isdir(remotepath)
 
     def temp_dir(self) -> str:
